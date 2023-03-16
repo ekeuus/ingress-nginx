@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"strings"
 
 	"k8s.io/klog/v2"
 
@@ -46,11 +47,50 @@ func (p *TCPProxy) Get(host string) *TCPServer {
 		return p.Default
 	}
 
+	// This section - made based on nginx hostname matching algorithm described in nginx docs (http://nginx.org/en/docs/http/server_names.html)
+
+	// 1. exact name
 	for _, s := range p.ServerList {
 		if s.Hostname == host {
 			return s
 		}
 	}
+
+	var matchedServer *TCPServer
+	var matchedTemplateLength int
+
+	// 2. longest wildcard name starting with an asterisk, e.g. "*.example.org"
+	matchedServer = nil
+	matchedTemplateLength = 0
+
+	for _, s := range p.ServerList {
+		if (s.Hostname[0] == '*') && strings.HasSuffix(host, s.Hostname[1:len(s.Hostname)]) && (len(s.Hostname) > matchedTemplateLength) {
+			matchedTemplateLength = len(s.Hostname)
+			matchedServer = s
+		}
+	}
+
+	if matchedServer != nil {
+		return matchedServer
+	}
+
+	// 3. longest wildcard name ending with an asterisk, e.g. "mail.*"
+	matchedServer = nil
+	matchedTemplateLength = 0
+
+	for _, s := range p.ServerList {
+		if (s.Hostname[len(s.Hostname)] == '*') && strings.HasPrefix(host, s.Hostname[0:len(s.Hostname)-1]) && (len(s.Hostname) > matchedTemplateLength) {
+			matchedTemplateLength = len(s.Hostname)
+			matchedServer = s
+		}
+	}
+
+	if matchedServer != nil {
+		return matchedServer
+	}
+
+	// 4. first matching regular expression (in order of appearance in a configuration file)
+	// TODO: implement this section
 
 	return p.Default
 }
